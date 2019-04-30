@@ -178,13 +178,13 @@ class AppAnimationLoop extends AnimationLoop {
       // new RenderPass(gl, {
       //   models: [this.cube]
       // }),
-
+      //
       // new SSAOPass(gl, {
       //   models: [this.cube],
       //   cameraNear: 1,
       //   cameraFar: 2048,
-      //   onlyAO: false,
-      //   ssao_uEnabled: true
+      //   onlyAO: ({tick}) => Boolean(Math.round(tick / 200) % 2),
+      //   ssao_uEnabled: ({tick}) => Boolean(Math.round(tick / 100) % 2)
       // }),
 
       // Draws once into stencil, draws again clipped by same stencil (i.e. shape of first draw)
