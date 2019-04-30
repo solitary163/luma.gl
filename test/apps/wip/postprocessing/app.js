@@ -1,22 +1,29 @@
 /* eslint-disable camelcase */
 // import '@luma.gl/debug';
 import GL from '@luma.gl/constants';
-import {AnimationLoop, setParameters, Cube, picking, dirlight} from '@luma.gl/core';
+import {AnimationLoop, setParameters, Model, CubeGeometry, picking, dirlight, Buffer, ModelNode} from '@luma.gl/core';
 import {Matrix4, radians} from 'math.gl';
+
+class Cube extends Model {
+  constructor(gl, opts = {}) {
+    const {id = 'cube1'} = opts;
+    super(gl, Object.assign({}, opts, {id, geometry: new CubeGeometry(opts)}));
+  }
+}
 
 import {
   _MultiPassRenderer as MultiPassRenderer,
   _ClearPass as ClearPass,
-  // _RenderPass as RenderPass,
+  _RenderPass as RenderPass,
   _PickingPass as PickingPass,
   _CopyPass as CopyPass
 } from '@luma.gl/core';
 
 import {
   depth,
-  // SSAOPass,
-  OutlinePass
-  // ConvolutionPass
+  SSAOPass,
+  OutlinePass,
+  ConvolutionPass
 } from '@luma.gl/effects';
 
 const INFO_HTML = `
@@ -30,7 +37,7 @@ single GPU draw call using instanced vertex attributes.
 const SIDE = 256;
 
 // Make a cube with 65K instances and attributes to control offset and color of each instance
-class InstancedCube extends Cube {
+class InstancedCube extends ModelNode {
   constructor(gl, props) {
     let offsets = [];
     for (let i = 0; i < SIDE; i++) {
@@ -50,9 +57,10 @@ class InstancedCube extends Cube {
       }
     }
 
-    const colors = new Float32Array(SIDE * SIDE * 3).map(() => Math.random() * 0.25 + 0.75);
+    const colors = new Float32Array(SIDE * SIDE * 3).map(() => Math.random() * 0.75 + 0.25);
 
     const vs = `\
+attribute float instanceSizes;
 attribute vec3 positions;
 attribute vec3 normals;
 attribute vec2 instanceOffsets;
@@ -77,42 +85,41 @@ void main(void) {
   // Vertex position (z coordinate undulates with time), and model rotates around center
   float delta = length(instanceOffsets);
   vec4 offset = vec4(instanceOffsets, sin((uTime + delta) * 0.1) * 16.0, 0);
-  gl_Position = uProjection * uView * (uModel * vec4(positions, 1.0) + offset);
+  gl_Position = uProjection * uView * (uModel * vec4(positions * instanceSizes, 1.0) + offset);
 }
 `;
     const fs = `\
 precision highp float;
 
-uniform vec4 uOverrideColor;
 varying vec3 color;
 
 void main(void) {
   gl_FragColor = vec4(color, 1.);
   gl_FragColor = dirlight_filterColor(gl_FragColor);
   gl_FragColor = picking_filterColor(gl_FragColor);
-  // check that color !== 0, 0, 0
-  if (dot(uOverrideColor, uOverrideColor) > 0.0001) {
-    gl_FragColor = uOverrideColor / 256.;
-  }
-  gl_FragColor = depth_filterColor(gl_FragColor);
 }
 `;
 
+    const offsetsBuffer = new Buffer(gl, offsets);
+    const colorsBuffer = new Buffer(gl, colors);
+    const pickingColorsBuffer = new Buffer(gl, pickingColors);
+
     super(
-      gl,
-      Object.assign({}, props, {
-        vs,
-        fs,
-        modules: [picking, dirlight, depth],
-        isInstanced: 1,
-        instanceCount: SIDE * SIDE,
-        attributes: {
-          instanceSizes: {value: new Float32Array([1]), size: 1, divisor: 1, isGeneric: true},
-          instanceOffsets: {value: offsets, size: 2, divisor: 1},
-          instanceColors: {value: colors, size: 3, divisor: 1},
-          instancePickingColors: {value: pickingColors, size: 2, divisor: 1}
-        }
-      })
+        gl,
+        Object.assign({}, props, {
+          vs,
+          fs,
+          modules: [picking, dirlight],
+          isInstanced: 1,
+          instanceCount: SIDE * SIDE,
+          geometry: new CubeGeometry(),
+          attributes: {
+            instanceSizes: new Float32Array([1]), // Constant attribute
+            instanceOffsets: [offsetsBuffer, {divisor: 1}],
+            instanceColors: [colorsBuffer, {divisor: 1}],
+            instancePickingColors: [pickingColorsBuffer, {divisor: 1}]
+          }
+        })
     );
   }
 }
@@ -165,9 +172,6 @@ class AppAnimationLoop extends AnimationLoop {
 
     this.multiPassRenderer = new MultiPassRenderer(gl, [
       // picking pass updates selectedPickingColor uniform, call before rendering
-      new PickingPass(gl, {
-        models: [this.cube]
-      }),
 
       new ClearPass(gl),
 
@@ -179,8 +183,8 @@ class AppAnimationLoop extends AnimationLoop {
       //   models: [this.cube],
       //   cameraNear: 1,
       //   cameraFar: 2048,
-      //   onlyAO: ({tick}) => Boolean(Math.round(tick / 200) % 2),
-      //   ssao_uEnabled: ({tick}) => Boolean(Math.round(tick / 100) % 2)
+      //   onlyAO: false,
+      //   ssao_uEnabled: true
       // }),
 
       // Draws once into stencil, draws again clipped by same stencil (i.e. shape of first draw)
@@ -205,9 +209,9 @@ class AppAnimationLoop extends AnimationLoop {
         }
       }),
 
-      // new ConvolutionPass(gl, {kernel: ConvolutionPass.KERNEL.EMBOSS}),
-      // new ConvolutionPass(gl, {kernel: ConvolutionPass.KERNEL.EDGE_DETECT_3}),
-      // new ConvolutionPass(gl, {kernel: ConvolutionPass.KERNEL.TRIANGLE_BLUR}),
+      //new ConvolutionPass(gl, {kernel: ConvolutionPass.KERNEL.EMBOSS}),
+      //new ConvolutionPass(gl, {kernel: ConvolutionPass.KERNEL.EDGE_DETECT_3}),
+      //new ConvolutionPass(gl, {kernel: ConvolutionPass.KERNEL.TRIANGLE_BLUR}),
 
       new CopyPass(gl, {screen: true})
     ]);
